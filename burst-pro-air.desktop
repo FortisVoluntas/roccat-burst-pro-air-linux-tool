@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Burst Pro Air
+Comment=Set the lighting zones and DPI stages of the ROCCAT Burst Pro Air
+Comment[de]=Zonenfarben und DPI-Stufen der ROCCAT Burst Pro Air setzen
+Exec=/path/to/burst-pro-air
+Icon=input-mouse
+Terminal=false
+Categories=Settings;HardwareSettings;

@@ -1,0 +1,3 @@
+# ROCCAT Burst Pro Air, wired. Gives the logged-in user write access to the
+# hidraw node, so the tool runs without root.
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1e7d", ATTRS{idProduct}=="2cab", TAG+="uaccess"
