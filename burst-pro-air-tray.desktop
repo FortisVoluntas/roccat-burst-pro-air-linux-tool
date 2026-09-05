@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Burst Pro Air battery
+Name[de]=Burst Pro Air Akkustand
+Comment=Shows the charge of the ROCCAT Burst Pro Air next to the clock
+Comment[de]=Zeigt den Ladestand der ROCCAT Burst Pro Air neben der Uhr
+Exec=/path/to/bpa_tray.py
+Icon=input-mouse
+Terminal=false
+Categories=Utility;

@@ -7,8 +7,9 @@ import math
 import os
 import random
 import sys
+import threading
 
-from PyQt6.QtCore import Qt, QTimer, QPoint, QPointF, QRectF
+from PyQt6.QtCore import Qt, QTimer, QPoint, QPointF, QRectF, pyqtSignal
 from PyQt6.QtGui import (
     QColor, QFont, QImage, QLinearGradient, QPainter, QPainterPath,
     QPainterPathStroker, QPen, QPixmap, QRadialGradient,
@@ -32,6 +33,13 @@ GRUEN = "#82ab7c"
 NEUTRAL = "#8e959f"
 ROT = "#8c2b23"
 
+# Vier Stufen zu 25 Prozent fuer den Ladestand. Gelb und Orange sind eigens
+# entsaettigt, damit neben Gruen und Rot keine Ampel entsteht.
+GELB = "#b3a45c"
+ORANGE = "#b07a45"
+AKKUSTUFEN = ((75, GRUEN), (50, GELB), (25, ORANGE), (0, ROT))
+AKKU_TAKT = 60_000
+
 SANS = ["Inter", "Noto Sans", "DejaVu Sans", "Segoe UI", "Roboto", "Arial", "sans-serif"]
 SCHREIBMASCHINE = ["Special Elite", "Courier New", "DejaVu Sans Mono", "monospace"]
 EMOJI = ["Noto Color Emoji", "Noto Emoji"] + SANS
@@ -54,6 +62,7 @@ TEXTE = {
         "fehlt": "NICHT GEFUNDEN",
         "fehlt_hinweis": "Keine Burst Pro Air gefunden, weder am Kabel noch über den "
                          "Dongle. Kabel einstecken; die Anzeige prüft alle zwei Sekunden nach.",
+        "akku": "AKKU",
         "beleuchtung": "BELEUCHTUNG",
         "beleuchtung_hinweis": "Auf ein Farbfeld in der Mausansicht klicken, um die Farbe "
                                "der Zone zu wählen. Der Regler daneben stellt ihre "
@@ -83,6 +92,7 @@ TEXTE = {
         "fehlt": "NOT FOUND",
         "fehlt_hinweis": "No Burst Pro Air found, neither by cable nor over the dongle. "
                          "Plug in the cable; the display checks again every two seconds.",
+        "akku": "BATTERY",
         "beleuchtung": "LIGHTING",
         "beleuchtung_hinweis": "Click a colour patch on the mouse view to choose that "
                                "zone's colour. The slider next to it sets the brightness, "
@@ -104,6 +114,13 @@ SPRACHE = "de"
 
 def t(schluessel):
     return TEXTE[SPRACHE][schluessel]
+
+
+def akkufarbe(prozent):
+    for grenze, farbe in AKKUSTUFEN:
+        if prozent >= grenze:
+            return farbe
+    return ROT
 
 
 _KORN = None
@@ -223,6 +240,80 @@ class Statuslicht(QWidget):
         kern.setAlpha(int(200 + 55 * anteil))
         maler.setBrush(kern)
         maler.drawEllipse(mitte, 3.2, 3.2)
+
+
+class Akku(QWidget):
+    """Ladestand der Maus: Licht in der Stufenfarbe, Prozentwert daneben.
+
+    Gelesen wird in einem eigenen Faden, weil die Abfrage ueber den Dongle rund
+    eine halbe Sekunde dauert und das Fenster so lange stehenbliebe.
+    """
+
+    gelesen = pyqtSignal(object)
+
+    def __init__(self):
+        super().__init__()
+        self.laeuft = False
+
+        self.licht = Statuslicht()
+        self.beschriftung = QLabel()
+        self.beschriftung.setFont(schrift(SCHREIBMASCHINE, 9, sperrung=1.6))
+        self.beschriftung.setStyleSheet(f"color: {TEXT_GEDAEMPFT};")
+        self.wert = QLabel("--")
+        self.wert.setFont(schrift(SCHREIBMASCHINE, 11))
+        self.spannung = QLabel(" ")
+        self.spannung.setFont(schrift(SCHREIBMASCHINE, 8))
+        self.spannung.setStyleSheet(f"color: {TEXT_LEISE};")
+
+        kopf = QHBoxLayout()
+        kopf.setSpacing(9)
+        kopf.addWidget(self.licht)
+        kopf.addWidget(self.beschriftung)
+        kopf.addStretch()
+        kopf.addWidget(self.wert)
+
+        aufbau = QVBoxLayout(self)
+        aufbau.setContentsMargins(0, 0, 0, 0)
+        aufbau.setSpacing(2)
+        aufbau.addLayout(kopf)
+        aufbau.addWidget(self.spannung, 0, Qt.AlignmentFlag.AlignRight)
+
+        self.gelesen.connect(self.anzeigen)
+        self.takt = QTimer(self)
+        self.takt.timeout.connect(self.nachsehen)
+        self.takt.start(AKKU_TAKT)
+        self.nachsehen()
+
+    def beschriften(self):
+        self.beschriftung.setText(t("akku"))
+
+    def nachsehen(self):
+        if self.laeuft:
+            return
+        self.laeuft = True
+        threading.Thread(target=self._lesen, daemon=True).start()
+
+    def _lesen(self):
+        try:
+            werte = bpa_led.akkustand()
+        except (OSError, RuntimeError):
+            werte = None
+        self.gelesen.emit(werte)
+
+    def anzeigen(self, werte):
+        self.laeuft = False
+        if werte is None:
+            self.licht.setzen(NEUTRAL)
+            self.wert.setText("--")
+            self.wert.setStyleSheet(f"color: {TEXT_LEISE};")
+            self.spannung.setText(" ")
+            return
+        prozent, millivolt = werte
+        farbe = akkufarbe(prozent)
+        self.licht.setzen(farbe)
+        self.wert.setText(f"{prozent} %")
+        self.wert.setStyleSheet(f"color: {farbe};")
+        self.spannung.setText(f"{millivolt} mV")
 
 
 class Maus(QWidget):
@@ -743,8 +834,11 @@ class Fenster(QWidget):
         self.beleuchtung_hinweis.setStyleSheet(f"color: {TEXT_GEDAEMPFT};")
         self.beleuchtung_hinweis.setWordWrap(True)
 
+        self.akku = Akku()
+
         regler = QVBoxLayout()
         regler.setSpacing(18)
+        regler.addWidget(self.akku)
         regler.addStretch()
         for zone in self.zonen:
             regler.addWidget(zone)
@@ -896,6 +990,7 @@ class Fenster(QWidget):
             zone.umbenennen(name)
         self.beleuchtung_text.beschriften(t("beleuchtung"))
         self.beleuchtung_hinweis.setText(t("beleuchtung_hinweis"))
+        self.akku.beschriften()
         self.dpi.beschriften()
         self.knopf.setText(t("uebernehmen"))
         self.fuss.setText(t("fuss"))

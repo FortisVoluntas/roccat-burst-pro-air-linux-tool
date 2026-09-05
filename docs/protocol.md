@@ -50,12 +50,115 @@ at 90 percent, which reads as millivolts.
 This works **wired only**. The dongle answers the same handshake with an empty
 `06 00 44 0c 00 …` on every one of its interfaces. Over Bluetooth the mouse
 offers the standard **GATT Battery Service** (`0x180f`) instead, and it reports
-the same number, so BlueZ and UPower pick the charge up on their own.
+the same number.
+
+Over Bluetooth the mouse **pushes the charge every 9.8 seconds**. The Battery
+Level characteristic `0x2a19` is declared `read, notify`, and notify is not a
+broadcast: the device sends only once a client has set the notification bit, and
+the subscription drops when that client goes away. Subscribed over a connection
+held open, 80 notifications arrived in 30 minutes, every one of them carrying the
+same value of 90, so the interval does not depend on a change. 69 of the gaps
+were 9.8 seconds. The outliers are sleep: pauses of 54.6, 66.3, 90.5 and once
+870.1 seconds with nothing at all, and after **every** such pause the next
+notification came 4.9 seconds later, half a step, before the grid resumed. So the
+mouse reports every ten seconds while awake, goes completely silent asleep, and
+sends immediately on waking. With nobody subscribed nothing is sent at all.
+
+### Over the dongle
+
+Worked out on 2026-09-05 from a `usbmon` capture of Swarm running in a VM with
+the dongle passed through, then replayed on Linux, where both routes answer.
+
+```
+write:  06 01 44 07 00 …
+read:   06 01 44 08 06 01 01 5a ff 2a 0b …
+                          ^^    ^^^^^
+                          |     byte 9/10: cell voltage in mV
+                          byte 7: charge in percent
+```
+
+Same layout as the wired answer. The single difference is **byte 1**: `01`
+addresses the mouse behind the dongle, `00` addresses the dongle itself. Swarm
+uses `00` for dongle commands (`13`, `25`, `00`) and `01` for everything meant
+for the mouse (`35`, `43`, `44`, `45`, `46`, `47`, `49`, `4b`, `4e`, `4f`).
+
+A second route has the value pushed on the interrupt endpoint of interface 2,
+where it arrives as report `0x08` without a further request:
+
+```
+write:  06 01 49 06 01 04 …
+report: 08 00 53 29 0b 01 5a 01 ff 03 …
+                 ^^^^^    ^^
+                 mV, 16 bit LE
+                          charge in percent
+```
+
+That is one report per command, not a subscription: four commands produced three
+reports and never more. Swarm itself polls about every 69 seconds.
+
+### One command unlocks it
+
+Freshly plugged in, the dongle answers the battery command with the empty
+`06 01 44 0c 00 …`. **One command changes that, and it has to come first:**
+
+```
+06 00 00 04        once per plug cycle, addressed to the dongle itself
+06 01 44 07 00     any number of times after that
+```
+
+Checked on 2026-09-05 across three plug cycles, each one conclusive on its own.
+First: bare command empty, Swarm's full preamble made it answer, and the bare
+command answered afterwards too, so the unlock lives in the dongle until it is
+unplugged. Second: the preamble sent one command at a time, `06 00 13 07 02`
+changed nothing, `06 00 00 04` flipped it. Third: `06 00 00 04` on its own is
+enough.
+
+The command is addressed to the dongle, not to the mouse, and its own answer is
+empty. Swarm repeats it together with `06 00 00 05` for as long as it runs, 140
+times in seven minutes. The voltages read back move from call to call (2846 to
+2866 mV at a steady 90 percent), so the value is live rather than a stored copy.
+
+### Configuration can be read back over the dongle
+
+Unlike the wired path, the stored pages come back:
+
+```
+write:  06 01 46 06 02 <page> <profile>
+write:  06 01 46 07 02 <page> <profile>
+read:   06 01 46 08 19 06 3f 01 06 06 07 02 20 03 c4 09 ea 0b …   the DPI block
+read:   06 01 46 08 19 80 0c 00 00 03 01 06 54 0f 00 00 …         the lighting block
+```
 
 Two fields in the dongle's own reports look like candidates but are not the
 charge: the five vendor bytes of the mouse report (`01 ab 2c 62 00`, usage
 `0xf1`, interface 0) and bytes 8/9 of the DPI button reports (`3e 03`). Both
 stayed byte-identical across a drop from 100 to 90 percent.
+
+Two ways further into the dongle were tried on 2026-09-05, both dead ends. Byte 1
+of the handshake is **not a device address**: swept over `00` to `07` and `ff` on
+all three interfaces, the dongle echoes the value back and still answers
+`06 <byte 1> 44 0c 00 …`, where a real device index would have rejected the
+unknown ones. And input report `0x0c`, declared with 63 bytes in the descriptor
+of interface 2 but never sent by the device, is **not a second channel**: fetched
+with `HIDIOCGINPUT` it returns whatever was last exchanged on any of the three
+interfaces, which is to say all three read from one buffer inside the device.
+
+**The dongle's feature channel cannot be probed at all.** OpenRGB's dongle
+driver uses the same transport as the wired one, feature report `0x06` over 30
+bytes, but the header `06 01 4c 06 …`: address `01` and command `4c` where the
+wire uses `00` and `46`. If writing maps `46` to `4c`, reading should map `44` to
+`4a`, so `06 01 4a 07 00`, `06 01 4c 07 00` and `06 01 44 07 00` were sent on
+interfaces 0 and 2, with `06 00 44 07 00` as the control. The dongle echoes
+**every** header back and stamps byte 3 with `0c`, always answering
+`06 <address> <command> 0c 00 …`. Wired, that byte reads `08` and data follows.
+Byte 3 is a state, not a length, and `0c` means "nothing for that". So sweeping
+the command space over this channel cannot find anything: no answer differs from
+any other, and a hit would not be recognisable as one.
+
+One path on interface 2 is still untested: the pair of **output report `0x09`**
+(29 bytes) and **input report `0x0c`** (63 bytes), both declared in the
+descriptor, neither ever used. Unlike the feature channel that one is
+distinguishable, since an answer would arrive as its own 63-byte report.
 
 ## The apply sequence
 

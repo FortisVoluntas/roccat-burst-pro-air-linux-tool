@@ -9,7 +9,7 @@ Statusabfrage. Geschrieben wird das im Geraet gespeicherte Profil, die Farben
 bleiben deshalb auch im Funkbetrieb erhalten.
 
 Der Dongle (1e7d:2ca6) nimmt diese Pakete nicht an - zum Setzen muss die Maus
-am Kabel haengen (1e7d:2cab).
+am Kabel haengen (1e7d:2cab). Der Ladestand geht dagegen auf beiden Wegen.
 """
 import fcntl
 import os
@@ -41,6 +41,19 @@ DPI_PLAETZE = 6
 DPI_VORGABE = (800, 2500, 3050)
 # Vorsichtsgrenze des Programms - die Grenzen der Maus sind nicht ausgelotet.
 DPI_MIN, DPI_MAX, DPI_SCHRITT = 50, 19000, 50
+
+# Am Dongle bleibt die Akkuantwort leer, solange nicht 06 00 00 04 vorausging.
+# Mitgeschickt wird der ganze Vorlauf aus dem Swarm-Mitschnitt: alle fuenf sind
+# Lesebefehle, sie aendern nichts, und die Abfrage kommt damit in jedem Zustand
+# durch. Am Kabel braucht es ihn nicht.
+AKKU_VORLAUF = (
+    (0x00, 0x13, 0x07, 0x02),
+    (0x00, 0x00, 0x04),
+    (0x00, 0x00, 0x05),
+    (0x01, 0x35, 0x07, 0x00),
+    (0x01, 0x45, 0x07, 0x00),
+)
+AKKU_DATEN = 0x08          # Byte 3 der Antwort: 0x08 traegt Daten, 0x0c ist leer
 
 
 def geraet_finden():
@@ -102,18 +115,43 @@ def _kommando(fd, rumpf):
     buf[1 : 1 + len(rumpf)] = rumpf
     fcntl.ioctl(fd, SETFEATURE, bytes(buf))
     time.sleep(0.08)
-    _status(fd)
+    _abfragen(fd, bytes((0x00, 0x44, 0x07, 0x00)))
 
 
-def _status(fd):
+def _abfragen(fd, rumpf):
+    """Schickt ein Kommando und gibt die Antwort der Maus zurueck."""
     buf = bytearray(PAKETLAENGE)
-    buf[0:5] = bytes((0x06, 0x00, 0x44, 0x07, 0x00))
+    buf[0] = 0x06
+    buf[1 : 1 + len(rumpf)] = rumpf
     fcntl.ioctl(fd, SETFEATURE, bytes(buf))
     time.sleep(0.08)
     antwort = bytearray(PAKETLAENGE)
     antwort[0] = 0x06
     fcntl.ioctl(fd, GETFEATURE, antwort)
     return bytes(antwort)
+
+
+def akkustand():
+    """Gibt (Ladestand in Prozent, Zellspannung in mV) zurueck.
+
+    Geht am Kabel wie am Dongle; der Unterschied ist das Adressbyte, 0x00 spricht
+    das Kabelgeraet an, 0x01 die Maus hinter dem Dongle.
+    """
+    gefunden = geraet_finden()
+    if gefunden is None:
+        raise RuntimeError("Burst Pro Air nicht gefunden.")
+    pfad, modus = gefunden
+    adresse = 0x00 if modus == "kabel" else 0x01
+    with open(pfad, "wb") as datei:
+        fd = datei.fileno()
+        for _ in range(2):
+            if modus == "funk":
+                for rumpf in AKKU_VORLAUF:
+                    _abfragen(fd, bytes(rumpf))
+            antwort = _abfragen(fd, bytes((adresse, 0x44, 0x07, 0x00)))
+            if antwort[3] == AKKU_DATEN:
+                return antwort[7], int.from_bytes(antwort[9:11], "little")
+    raise RuntimeError("Die Maus meldet keinen Ladestand. Schläft sie?")
 
 
 def setzen(farben, helligkeiten, dpi_stufen, dpi_start=1):
@@ -154,13 +192,22 @@ def zone_lesen(text):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) == 2 and sys.argv[1] == "akku":
+        try:
+            prozent, millivolt = akkustand()
+        except (OSError, RuntimeError) as fehler:
+            raise SystemExit(str(fehler)) from None
+        print(f"Akku {prozent} Prozent, Zellspannung {millivolt} mV")
+        sys.exit(0)
+
     if not 5 <= len(sys.argv) <= 6:
         raise SystemExit(
             f"Aufruf: {os.path.basename(sys.argv[0])} <Mausrad> <links> <rechts> <Handablage> [DPI-Stufen]\n"
             "  je Zone:    RRGGBB oder RRGGBB:helligkeit (0-100, Vorgabe 100)\n"
             f"  DPI-Stufen: 1 bis {DPI_PLAETZE} Werte mit Komma, dahinter optional"
             " :Startstufe, z. B. 800,2500,3050:3\n"
-            f"              (Vorgabe {','.join(str(w) for w in DPI_VORGABE)}, Startstufe 1)"
+            f"              (Vorgabe {','.join(str(w) for w in DPI_VORGABE)}, Startstufe 1)\n"
+            f"   oder:    {os.path.basename(sys.argv[0])} akku    Ladestand ausgeben"
         )
     werte = [zone_lesen(a) for a in sys.argv[1:5]]
     stufen, start = DPI_VORGABE, 1
@@ -170,11 +217,11 @@ if __name__ == "__main__":
             stufen = [int(w) for w in liste.split(",")]
             start = int(gewaehlt) if gewaehlt else 1
         except ValueError:
-            raise SystemExit(f"DPI-Stufen nicht lesbar: {sys.argv[5]}")
+            raise SystemExit(f"DPI-Stufen nicht lesbar: {sys.argv[5]}") from None
     try:
         pfad, block = setzen([f for f, _ in werte], [h for _, h in werte], stufen, start)
     except (ValueError, RuntimeError) as fehler:
-        raise SystemExit(str(fehler))
+        raise SystemExit(str(fehler)) from None
     print(f"gesendet an {pfad}")
     for i, name in enumerate(ZONEN):
         print(f"  {name:13s} {block[9 + 5 * i:14 + 5 * i].hex(' ')}")

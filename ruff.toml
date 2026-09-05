@@ -1,0 +1,11 @@
+[lint]
+# Default rules plus bugbear (B) and the bandit security checks (S).
+select = ["E4", "E7", "E9", "F", "B", "S"]
+
+# S311: the film grain in bpa_gui.py seeds random.Random(7) on purpose, so the
+# pattern comes out the same every time. Nothing cryptographic about it.
+ignore = ["S311"]
+
+[lint.per-file-ignores]
+# S101: assert is what a test is written with.
+"test_bpa.py" = ["S101"]

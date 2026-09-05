@@ -64,9 +64,38 @@ A zone is `RRGGBB` or `RRGGBB:brightness` with brightness in percent. The last
 argument holds one to six DPI stages, optionally followed by `:startstage`, the
 stage the mouse wakes up on.
 
+The charge is readable on both connections, wired and over the 2.4 GHz dongle:
+
+```
+./bpa_led.py akku
+Akku 90 Prozent, Zellspannung 2854 mV
+```
+
 `install.sh` puts the desktop entry in place. By hand, copy
 `burst-pro-air.desktop` to `~/.local/share/applications/` and write the real path
 into `Exec=`, in quotes if it contains spaces.
+
+## Battery icon in the panel
+
+`bpa_tray.py` puts a mouse next to the clock. Its colour carries the charge in
+steps of 25 percent, green, yellow, orange, red, and hovering over it shows the
+exact percentage and the cell voltage. It looks once a minute, the first time a
+minute after login so the mouse is certainly enumerated by then.
+
+It shows itself only while the mouse is reachable over USB, wired or through the
+dongle. Over Bluetooth it stays hidden: there the desktop already tracks the
+charge through UPower, and there would be two icons for one mouse.
+
+`install.sh` writes the autostart entry. By hand, copy
+`burst-pro-air-tray.desktop` to `~/.config/autostart/` and write the real path
+into `Exec=`, in quotes if it contains spaces.
+
+**It needs a panel that speaks StatusNotifierItem.** KDE Plasma, XFCE, Cinnamon,
+MATE, LXQt and Budgie do. **GNOME Shell does not:** it dropped the tray area and
+needs the extension *AppIndicator and KStatusNotifierItem Support*, without which
+the icon never appears and says nothing about why. Written and tested on KDE
+Plasma under Wayland; the other environments follow from the protocol, they were
+not tried here.
 
 ## Permissions
 

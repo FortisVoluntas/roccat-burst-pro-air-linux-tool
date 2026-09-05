@@ -25,6 +25,18 @@ while IFS= read -r zeile; do
 done < "$hier/burst-pro-air.desktop" > "$anwendungen/burst-pro-air.desktop"
 echo "Menu entry written to $anwendungen/burst-pro-air.desktop"
 
+# Das Symbol in der Kontrollleiste startet mit der Sitzung. Es braucht einen
+# Tray nach StatusNotifierItem; GNOME Shell hat keinen, siehe README.
+autostart="${XDG_CONFIG_HOME:-$HOME/.config}/autostart"
+mkdir -p "$autostart"
+while IFS= read -r zeile; do
+    case "$zeile" in
+        Exec=*) printf 'Exec="%s"\n' "$hier/bpa_tray.py" ;;
+        *) printf '%s\n' "$zeile" ;;
+    esac
+done < "$hier/burst-pro-air-tray.desktop" > "$autostart/burst-pro-air-tray.desktop"
+echo "Battery icon autostart written to $autostart/burst-pro-air-tray.desktop"
+
 echo "The udev rule needs root:"
 sudo install -m 644 "$hier/udev/99-roccat-burst-pro-air.rules" /etc/udev/rules.d/
 sudo udevadm control --reload
