@@ -16,13 +16,31 @@ DPI stages survive a reboot and stay in place over the dongle.
 
 ## Requirements
 
-* Python 3 and PyQt6 (`python3-pyqt6` on Fedora and Nobara, `python3-pyqt6` on
-  Debian and Ubuntu). The command line tool needs Python alone.
+* Python 3 and PyQt6 (`python3-pyqt6` on Fedora, Nobara, Debian and Ubuntu,
+  `python-pyqt6` on Arch). The command line tool needs Python alone.
 * The mouse plugged in **by cable** (`1e7d:2cab`). The dongle (`1e7d:2ca6`) will
   not accept these packets, so plug the cable in to change something and unplug
   it afterwards.
 
 Written on Nobara 44 with KDE, Python 3.14 and PyQt6 6.11.
+
+## Install
+
+```
+git clone https://github.com/FortisVoluntas/roccat-burst-pro-air-linux-tool.git
+cd roccat-burst-pro-air-linux-tool
+./install.sh
+```
+
+The script does two things: it writes a menu entry pointing back at the folder
+you cloned into, and it installs the udev rule, which is the step that asks for
+your password. The tool stays where it is and runs from there, so keep the
+folder.
+
+To undo it, delete `~/.local/share/applications/burst-pro-air.desktop` and
+`/etc/udev/rules.d/99-roccat-burst-pro-air.rules`, then remove the folder.
+
+Doing it by hand works as well, see Use and Permissions.
 
 ## Use
 
@@ -46,8 +64,9 @@ A zone is `RRGGBB` or `RRGGBB:brightness` with brightness in percent. The last
 argument holds one to six DPI stages, optionally followed by `:startstage`, the
 stage the mouse wakes up on.
 
-For a desktop entry, copy `burst-pro-air.desktop` to
-`~/.local/share/applications/` and fix the paths in it.
+`install.sh` puts the desktop entry in place. By hand, copy
+`burst-pro-air.desktop` to `~/.local/share/applications/` and write the real path
+into `Exec=`, in quotes if it contains spaces.
 
 ## Permissions
 

@@ -2,5 +2,5 @@
 # Copyright (C) 2026 FortisVoluntas (https://github.com/FortisVoluntas)
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Startet die Oberflaeche unabhaengig vom aktuellen Verzeichnis.
-cd "$(dirname "$(readlink -f "$0")")"
+cd "$(dirname "$(readlink -f "$0")")" || exit 1
 exec /usr/bin/python3 bpa_gui.py "$@"

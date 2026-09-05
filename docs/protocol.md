@@ -32,6 +32,31 @@ read:   06 00 44 08 06 01 00 5a ff 67 0b 05 05 05 05 4b … 7e …   (battery le
 Without that handshake the mouse drops the commands, silently and without an
 error.
 
+## Battery level
+
+The status answer carries the charge, so no extra command is needed:
+
+```
+06 00 44 08 06 01 00 5a ff 76 0b …
+                     ^^    ^^^^^
+                     |     byte 9/10: cell voltage, 16 bit little endian
+                     byte 7: charge in percent
+```
+
+Byte 7 was read as `0x64` = 100 and `0x5a` = 90, matching what Swarm displays at
+the same moment. Byte 9/10 tracks the charge: 3021 at 100 percent, 2919 and 2934
+at 90 percent, which reads as millivolts.
+
+This works **wired only**. The dongle answers the same handshake with an empty
+`06 00 44 0c 00 …` on every one of its interfaces. Over Bluetooth the mouse
+offers the standard **GATT Battery Service** (`0x180f`) instead, and it reports
+the same number, so BlueZ and UPower pick the charge up on their own.
+
+Two fields in the dongle's own reports look like candidates but are not the
+charge: the five vendor bytes of the mouse report (`01 ab 2c 62 00`, usage
+`0xf1`, interface 0) and bytes 8/9 of the DPI button reports (`3e 03`). Both
+stayed byte-identical across a drop from 100 to 90 percent.
+
 ## The apply sequence
 
 ```
